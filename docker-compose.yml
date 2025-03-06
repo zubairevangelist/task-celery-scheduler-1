@@ -1,0 +1,33 @@
+version: "3.8"
+services:
+  redis:
+    image: "redis"
+    ports:
+      - "6379:6379"
+    networks:
+      - tool_network
+      
+  web:
+    build: .
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    networks:
+      - tool_network
+  worker:
+    build: .
+    command: celery -A tasks worker --loglevel=info -B
+    depends_on:
+      - redis
+      - web
+    volumes:
+      - .:/app
+    networks:
+      - tool_network
+
+
+networks:
+  tool_network:
+    driver: bridge
