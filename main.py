@@ -22,6 +22,7 @@
 # main.py (FastAPI - optional, for API interaction)
 from fastapi import FastAPI
 from pydantic import BaseModel
+import uvicorn
 from tasks import daily_task, every_minute_task, weekly_task, monthly_task, yearly_task
 
 app = FastAPI()
@@ -74,17 +75,5 @@ async def root():
 
 
 
-# # main.py (Optional FastAPI example to trigger the task)
-# from fastapi import FastAPI
-# from tasks import hello_world
-
-# app = FastAPI()
-
-# @app.get("/hello")
-# async def trigger_hello():
-#     hello_world.delay()  # Schedule the task to run in the background
-#     return {"message": "Hello task triggered"}
-
-# @app.get("/")
-# async def root():
-#     return {"message": "Celery Hello World"}
+# if __name__ == '__main__':
+#     uvicorn.run(app, host='0.0.0.0', port=5000)
