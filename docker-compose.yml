@@ -2,6 +2,7 @@
 services:
   redis:
     image: "redis"
+    env_file: ./.env
     ports:
       - "6379:6379"
     networks:
@@ -9,10 +10,12 @@ services:
 
   postgres:
     image: "postgres:17"
-    environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabase
+    env_file: ./.env
+    # environment:
+    #   POSTGRES_USER: myuser
+    #   POSTGRES_PASSWORD: mypassword
+    #   POSTGRES_DB: mydatabase
+
     ports:
       - "5432:5432"
     networks:
@@ -22,16 +25,20 @@ services:
   web:
     build: .
     command: uvicorn main:app --host 0.0.0.0 --port 8000
+    env_file: ./.env
     ports:
       - "8000:8000"
     depends_on:
       - redis
     networks:
       - tool_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   worker:
     build: .
-    command: celery -A tasks worker --loglevel=info
+    command: celery -A tasks.tasks worker --loglevel=info
+    env_file: ./.env
     depends_on:
       - redis
       - web
@@ -42,7 +49,10 @@ services:
 
   celery-beat:
     build: .
-    command: celery -A tasks beat --loglevel=info
+    command: celery -A tasks.tasks beat --loglevel=info
+    # command: celery -A tasks.tasks beat --loglevel=info --scheduler django-celery
+    # command: celery -A tasks.tasks beat --scheduler celery.beat.PersistentScheduler --loglevel=info
+    env_file: ./.env
     depends_on:
       - redis
       - web
