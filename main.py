@@ -206,4 +206,4 @@ def delete_task(task_id: int, session: Session = Depends(get_session)):
 
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=5000)
+    uvicorn.run(app, host='0.0.0.0', port=8000)

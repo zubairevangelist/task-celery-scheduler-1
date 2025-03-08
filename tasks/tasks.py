@@ -4,7 +4,7 @@ from celery.schedules import crontab
 from config import settings
 
 DATABASE_URL = f"db+postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
-REDIS_URL = f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}"
+REDIS_URL = f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
 celery_app = Celery(
     "tasks",
     broker=REDIS_URL,  # Replace with your Redis broker URL
