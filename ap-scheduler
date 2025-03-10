@@ -1,0 +1,39 @@
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import time
+
+# Create Database Tables on Startup
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Creating database tables...")
+    
+    print("Database tables are ready.")
+    yield  # Continue running the app
+    print("Shutting down...")
+
+# FastAPI App with Lifespan
+app = FastAPI(lifespan=lifespan)
+
+
+# Create a scheduler
+scheduler = BackgroundScheduler()
+
+# Example task
+def scheduled_task():
+    print(f"Task executed at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+# Add a job that runs every minute
+scheduler.add_job(scheduled_task, CronTrigger(minute="*"))
+
+# Start the scheduler
+scheduler.start()
+
+@app.get("/")
+def read_root():
+    return {"message": "APScheduler running with FastAPI"}
+
+# @app.on_event("shutdown")
+# def shutdown_event():
+#     scheduler.shutdown()

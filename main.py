@@ -22,11 +22,13 @@
 # main.py (FastAPI - optional, for API interaction)
 import os
 from fastapi import FastAPI, HTTPException
+import httpx
 from pydantic import BaseModel, EmailStr, IPvAnyAddress, constr, Field
 import datetime
+import requests
 import uvicorn
 from tasks.tasks import daily_task, every_minute_task, weekly_task, monthly_task, yearly_task
-from config import settings
+# from config import settings
 
 
 from fastapi import FastAPI, HTTPException, Depends
@@ -36,6 +38,22 @@ from sqlmodel import SQLModel, Field, create_engine, Session, select
 from typing import Optional
 import datetime
 
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+POSTGRES_USER = os.getenv("POSTGRES_USER", "myuser")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "mypassword")
+POSTGRES_DB = os.getenv("POSTGRES_DB", "mydatabase")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = os.getenv("POSTGRES_PORT", 5432)
+
+
+
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = os.getenv("REDIS_PORT", 6379)
 
 
 # app = FastAPI()
@@ -59,28 +77,30 @@ app = FastAPI(lifespan=lifespan)
 class ScheduleTaskRequest(BaseModel):
     task_ip: IPvAnyAddress
     task_domain: EmailStr  
+    task_api: str  
     task_frequency: str = Field(..., regex="^(daily|weekly|monthly|yearly)$")
-    task_title: str
     task_date: datetime.date
     task_time: datetime.time
+    task_priority: str = Field(..., regex="^(low|medium|high)$")
+    task_title: str
     user_id: str
 
-@app.post("/schedule_task")
-async def schedule_task(request: ScheduleTaskRequest):
+# @app.post("/schedule_task")
+# async def schedule_task(request: ScheduleTaskRequest):
     
-    if request.task_frequency == "daily":
-        daily_task.delay()
-    elif request.task_frequency == "weekly":
-        weekly_task.delay()
-    elif request.task_frequency == "monthly":
-        monthly_task.delay()
-    elif request.task_frequency == "yearly":
-        yearly_task.delay()
-    elif request.task_frequency == "every-minute":
-        every_minute_task.delay()
+#     if request.task_frequency == "daily":
+#         daily_task.delay()
+#     elif request.task_frequency == "weekly":
+#         weekly_task.delay()
+#     elif request.task_frequency == "monthly":
+#         monthly_task.delay()
+#     elif request.task_frequency == "yearly":
+#         yearly_task.delay()
+#     elif request.task_frequency == "every-minute":
+#         every_minute_task.delay()
         
 
-    return {"message": "Task has been scheduled!"}
+#     return {"message": "Task has been scheduled!"}
    
 
 # @app.get("/daily")
@@ -117,41 +137,44 @@ class CeleryTaskmeta(Base):
 
 @app.get("/")
 async def root():
-    
-    # # Create DB engine and session
-    # engine = create_engine("postgresql://myuser:mypassword@postgres/mydatabase")
-    # SessionLocal = sessionmaker(bind=engine)
-    # session = SessionLocal()
-    from db.models import session
-    tasks = session.query(CeleryTaskmeta).filter()
 
-    for task in tasks:
-        print(task.id, task.status, task.task_id)
-
-    return {"message": "Celery scheduled tasks"}
-
-
-
-
-
+    return {"message": "Welcome to the scheduler api"}
 
 
 # Database Connection
-DATABASE_URL = f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 # DATABASE_URL = "postgresql://myuser:mypassword@postgres:5432/mydatabase"
 engine = create_engine(DATABASE_URL, echo=True)
 
+
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
 #  Define the SQLModel
 class ScheduleTasks(SQLModel, table=True):
+    __tablename__ = "schedule_tasks"
     id: Optional[int] = Field(default=None, primary_key=True)
-    task_ip: str = Field(nullable=False)
-    task_domain: str = Field(nullable=False)
-    task_frequency: str = Field(nullable=False)
-    task_title: str = Field(nullable=False)
-    task_date: datetime.date = Field(nullable=False)
-    task_time: datetime.time = Field(nullable=False)
-    user_id: str = Field(nullable=False)
+    task_ip: str = Field(nullable=True)
+    # task_api: str = Field(nullable=True)
+    task_domain: str = EmailStr
+    task_frequency: str = Field(..., regex="^(daily|weekly|monthly|yearly)$", nullable=True)
+    task_title: str = Field(nullable=True)
+    task_priority: Optional[str] = Field(default=None, regex="^(low|medium|high)$")
+    task_date: datetime.date = Field(nullable=True)
+    task_time: datetime.time = Field(nullable=True)
+    user_id: str = Field(nullable=True)
 
+
+    # task_ip: IPvAnyAddress
+    # task_domain: EmailStr  
+    # task_api: str  
+    # task_frequency: str = Field(..., regex="^(daily|weekly|monthly|yearly)$")
+    # task_date: datetime.date
+    # task_time: datetime.time
+    # task_priority = str = Field(..., regex="^(low|medium|high)$")
+    # task_title: str
+    # user_id: str
 
 
 
@@ -160,11 +183,64 @@ def get_session():
         yield session
 
 @app.post("/tasks/", response_model=ScheduleTasks)
-def create_task(task: ScheduleTasks, session: Session = Depends(get_session)):
-    session.add(task)
-    session.commit()
-    session.refresh(task)
-    return task
+def create_task(request: ScheduleTaskRequest, session: Session = Depends(get_session)):
+    try:
+        # Validate input and map Pydantic request to SQLAlchemy model
+        task = ScheduleTasks(
+            task_ip=str(request.task_ip),
+            task_api=request.task_api,
+            task_domain=request.task_domain,
+            task_frequency=request.task_frequency,
+            task_title=request.task_title,
+            task_date=request.task_date,
+            task_time=request.task_time,
+            user_id=request.user_id,
+        )
+
+        # Save to DB
+        session.add(task)
+        session.commit()
+        session.refresh(task)
+
+        # Trigger Celery Task Based on Frequency
+        task_mapping = {
+            "daily": daily_task,
+            "weekly": weekly_task,
+            "monthly": monthly_task,
+            "yearly": yearly_task,
+            "every-minute": every_minute_task,
+        }
+
+        if task.task_frequency in task_mapping:
+            task_mapping[task.task_frequency].delay()
+
+        # # Call External API (With Error Handling)
+        # url = "https://ingress.ip.attackinsights.dev/ip-scan-all"
+        # data = {
+        #     "task_ip": task.task_ip,
+        #     "user_id": task.user_id
+        # }
+
+        # try:
+        #     with httpx.Client(timeout=10) as client:
+        #         response = client.post(url, json=data)
+        #         response.raise_for_status()  # Raises an exception for 4xx/5xx errors
+        #         api_response = response.json()
+        # except httpx.RequestError as e:
+        #     raise HTTPException(status_code=502, detail=f"External API request failed: {str(e)}")
+
+        return task
+
+    except Exception as e:
+        session.rollback()  # Rollback if an error occurs
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+    finally:
+        session.close()  # Ensure session is closed properly
+       # Print response JSON
+
+
+    # return task
 
 @app.get("/tasks/", response_model=list[ScheduleTasks])
 def get_tasks(session: Session = Depends(get_session)):
