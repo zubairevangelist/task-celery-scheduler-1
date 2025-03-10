@@ -143,6 +143,8 @@ async def root():
 
 # Database Connection
 DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+# DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+print(DATABASE_URL)
 # DATABASE_URL = "postgresql://myuser:mypassword@postgres:5432/mydatabase"
 engine = create_engine(DATABASE_URL, echo=True)
 

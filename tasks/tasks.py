@@ -11,16 +11,19 @@ load_dotenv()
 POSTGRES_USER = os.getenv("POSTGRES_USER", "myuser")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "mypassword")
 POSTGRES_DB = os.getenv("POSTGRES_DB", "mydatabase")
+# POSTGRES_HOST = "localhost"
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
 POSTGRES_PORT = os.getenv("POSTGRES_PORT", 5432)
 
 
 
+# REDIS_HOST = "localhost"
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = os.getenv("REDIS_PORT", 6379)
 
 DATABASE_URL = f"db+postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+print(REDIS_URL)
 celery_app = Celery(
     "tasks",
     broker=REDIS_URL,  # Replace with your Redis broker URL
