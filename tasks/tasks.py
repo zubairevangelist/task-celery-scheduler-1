@@ -1,9 +1,8 @@
 # tasks.py
 import os
+import time
 from celery import Celery
 from celery.schedules import crontab
-# from config import settings
-
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -95,3 +94,13 @@ def every_minute_task():
     print("Running every minute task!")
     # return "every minute task completed"
     return {"message": "Every minute task completed"}
+
+@celery_app.task
+def on_time_task():
+    """
+    This task will run at the scheduled time and execute logic.
+    """
+    print(f"Executing Task on given time")
+    # Simulate processing time
+    time.sleep(2)
+    return {"message": "On time task completed"}
