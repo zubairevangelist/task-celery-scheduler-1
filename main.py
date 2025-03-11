@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr, IPvAnyAddress, constr, Field, field_va
 import datetime
 import requests
 import uvicorn
-from tasks.tasks import daily_task, every_minute_task, execute_scheduled_task, weekly_task, monthly_task, yearly_task
+from tasks.tasks import daily_task, every_minute_task, on_time_task, weekly_task, monthly_task, yearly_task
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi import FastAPI
@@ -143,6 +143,7 @@ def create_task(request: ScheduleTaskRequest, session: Session = Depends(get_ses
             task_api=request.task_api,
             task_domain=request.task_domain,
             task_frequency=request.task_frequency,
+            task_priority=request.task_priority,
             task_title=request.task_title,
             task_date=request.task_date,
             task_time=request.task_time,
@@ -157,7 +158,7 @@ def create_task(request: ScheduleTaskRequest, session: Session = Depends(get_ses
         if request.task_date != "" and request.task_time != "":
             # **Schedule Celery Task**
             print(f"Scheduled Task On given time %s", task_datetime)    
-            task_result = execute_scheduled_task.apply_async(
+            task_result = on_time_task.apply_async(
                 eta=task_datetime
             )
 
