@@ -32,8 +32,6 @@ services:
       - redis
     networks:
       - tool_network
-    # extra_hosts:
-    #   - "host.docker.internal:host-gateway"
 
   worker:
     build: .
@@ -50,8 +48,6 @@ services:
   celery-beat:
     build: .
     command: celery -A tasks.tasks beat --loglevel=info
-    # command: celery -A tasks.tasks beat --loglevel=info --scheduler django-celery
-    # command: celery -A tasks.tasks beat --scheduler celery.beat.PersistentScheduler --loglevel=info
     env_file: ./.env
     depends_on:
       - redis

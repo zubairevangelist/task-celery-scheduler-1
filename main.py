@@ -1,5 +1,7 @@
 import os
 import re
+from uuid import UUID
+import uuid
 from fastapi import FastAPI, HTTPException
 import httpx
 from pydantic import BaseModel, EmailStr, IPvAnyAddress, constr, Field, field_validator
@@ -82,25 +84,20 @@ class ScheduleTaskRequest(BaseModel):
 
     @field_validator("task_domain")
     @classmethod
-    def validate_domain(cls, value):
+    def validate_domain(cls, value: str):
         domain_pattern = re.compile(
-            r"^(?:[a-zA-Z0-9-]+\.)+[a-zA-Z0-9-]+\.[a-zA-Z]{2,}$"
+            r"^(?!:\/\/)([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+\.[a-zA-Z]{2,}$"
         )
-        if not domain_pattern.match(value):
+        
+        if not domain_pattern.fullmatch(value):
             raise ValueError("Invalid domain or subdomain. Example: example.com or sub.example.com")
-
-        # # Check if domain resolves (optional)
-        # try:
-        #     socket.gethostbyname(value)
-        # except socket.gaierror:
-        #     raise ValueError("Domain does not exist or cannot be resolved.")
 
         return value  
 
 #  Define the SQLModel
 class ScheduleTasks(SQLModel, table=True):
     __tablename__ = "schedule_tasks"
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True) 
     task_ip: str = Field(nullable=True)
     task_api: str = Field(nullable=True)
     task_domain: str = Field(nullable=True)
@@ -158,9 +155,7 @@ def create_task(request: ScheduleTaskRequest, session: Session = Depends(get_ses
         if request.task_date != "" and request.task_time != "":
             # **Schedule Celery Task**
             print(f"Scheduled Task On given time %s", task_datetime)    
-            task_result = on_time_task.apply_async(
-                eta=task_datetime
-            )
+            task_result = on_time_task.apply_async(args=[101, "user123"], eta=task_datetime)
 
             print(f"Scheduled Task ID: {task_result.id}")
             # return {"message": "Task Scheduled", "task_id": task_result.id}

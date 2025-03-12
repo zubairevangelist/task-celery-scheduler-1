@@ -39,6 +39,7 @@ celery_app.conf.update(
         "result_serializer": "json",
         "accept_content": ["json"],
         "timezone": "UTC",  # Set your desired timezone
+        "enable_utc":True,
         "beat_schedule": {
             "daily_task": {
                 "task": "tasks.tasks.daily_task",
@@ -58,7 +59,7 @@ celery_app.conf.update(
             },
             "every_minute_task": {
                 "task": "tasks.tasks.every_minute_task",
-                "schedule": crontab(minute="*"), # Run on every minute
+                "schedule": crontab(minute="*/10"), # Run on every minute
             },
         },
     }
@@ -96,11 +97,11 @@ def every_minute_task():
     return {"message": "Every minute task completed"}
 
 @celery_app.task
-def on_time_task():
+def on_time_task(task_id: int, user_id: str):
     """
     This task will run at the scheduled time and execute logic.
     """
     print(f"Executing Task on given time")
     # Simulate processing time
-    time.sleep(2)
+    # time.sleep(2)
     return {"message": "On time task completed"}
