@@ -15,10 +15,15 @@ POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
 POSTGRES_PORT = os.getenv("POSTGRES_PORT", 5432)
 
 
+print("DEBUG:", os.getenv("DEBUG"))
 
 # REDIS_HOST = "localhost"
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = os.getenv("REDIS_PORT", 6379)
+
+if os.getenv("DEBUG") == "True":
+    POSTGRES_HOST = "localhost"
+    REDIS_HOST = "localhost"
 
 DATABASE_URL = f"db+postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
@@ -59,7 +64,7 @@ celery_app.conf.update(
             },
             "every_minute_task": {
                 "task": "tasks.tasks.every_minute_task",
-                "schedule": crontab(minute="*/10"), # Run on every minute
+                "schedule": crontab(minute="*"), # Run on every minute
             },
         },
     }
@@ -105,3 +110,12 @@ def on_time_task(task_id: int, user_id: str):
     # Simulate processing time
     # time.sleep(2)
     return {"message": "On time task completed"}
+
+
+
+@celery_app.task
+def execute_scheduled_task():
+    """Executes the scheduled task"""
+    print(f"Executing task for user")
+    return {"status": "Completed", "task_id": "id"}
+

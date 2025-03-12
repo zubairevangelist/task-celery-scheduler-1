@@ -2,10 +2,11 @@ import os
 import re
 from uuid import UUID
 import uuid
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 import httpx
 from pydantic import BaseModel, EmailStr, IPvAnyAddress, constr, Field, field_validator
 import datetime
+import pytz
 import requests
 import uvicorn
 from tasks.tasks import daily_task, every_minute_task, on_time_task, weekly_task, monthly_task, yearly_task
@@ -16,7 +17,7 @@ from contextlib import asynccontextmanager
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from typing import Annotated, Optional
 import datetime
-
+from celery.schedules import crontab
 
 from dotenv import load_dotenv
 
@@ -34,7 +35,9 @@ POSTGRES_PORT = os.getenv("POSTGRES_PORT", 5432)
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = os.getenv("REDIS_PORT", 6379)
 
-
+if os.getenv("DEBUG") == "True":
+    POSTGRES_HOST = "localhost"
+    REDIS_HOST = "localhost"
 
 from sqlmodel import SQLModel
 
@@ -80,7 +83,8 @@ class ScheduleTaskRequest(BaseModel):
     task_time: Annotated[datetime.time, Field()]  
     task_priority: str = Field(..., regex="^(low|medium|high)$")
     task_title: str
-    user_id: str   
+    user_id: str
+    task_id: str   
 
     @field_validator("task_domain")
     @classmethod
@@ -97,7 +101,7 @@ class ScheduleTaskRequest(BaseModel):
 #  Define the SQLModel
 class ScheduleTasks(SQLModel, table=True):
     __tablename__ = "schedule_tasks"
-    id: Optional[int] = Field(default=None, primary_key=True) 
+    id: Optional[int] = Field(default=None, primary_key=True, index=True)
     task_ip: str = Field(nullable=True)
     task_api: str = Field(nullable=True)
     task_domain: str = Field(nullable=True)
@@ -237,6 +241,63 @@ def delete_task(task_id: int, session: Session = Depends(get_session)):
     session.delete(task)
     session.commit()
     return {"message": "Task deleted successfully"}
+
+
+@app.post("/schedule-task/")
+async def schedule_task_api(request: ScheduleTaskRequest, background_tasks: BackgroundTasks):
+    """
+    API to schedule a task with a specific time and frequency.
+    """
+    print("in schedule task api")
+    background_tasks.add_task(
+        schedule_task, request.task_id, request.user_id, request.task_date, request.task_time, request.task_frequency
+    )
+    return {"message": "Task scheduled successfully", "task_id": request.task_id}
+
+
+
+
+
+def schedule_task(task_id, user_id, task_date, task_time, frequency):
+    """
+    Dynamically schedules a Celery task based on user-provided date, time, and frequency.
+    """
+    print("in schedule task function")
+    # Convert user-provided date & time to UTC
+    task_datetime = datetime.datetime.combine(task_date, task_time)
+    task_datetime = task_datetime.replace(tzinfo=datetime.timezone.utc)
+    
+    
+    # Validate if the scheduled time is in the future
+    if task_datetime <= datetime.datetime.now(datetime.timezone.utc):
+        raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
+
+
+    hour, minute = task_datetime.hour, task_datetime.minute
+    day, month, weekday = task_datetime.day, task_datetime.month, task_datetime.weekday()
+    print("minute", minute, "hour", hour,  "day", day, "month", month, "weekday", weekday)
+    # Set scheduling rules
+    if frequency == "now":
+        schedule = crontab(minute="*")
+    elif frequency == "daily":
+        schedule = crontab(hour=hour, minute=minute)
+    elif frequency == "weekly":
+        schedule = crontab(day_of_week=weekday, hour=hour, minute=minute)
+    elif frequency == "monthly":
+        schedule = crontab(day_of_month=day, hour=hour, minute=minute)
+    elif frequency == "yearly":
+        schedule = crontab(month_of_year=month, day_of_month=day, hour=hour, minute=minute)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid frequency. Choose from daily, weekly, monthly, yearly.")
+
+    from tasks.tasks import celery_app
+    # Add task to Celery Beat schedule
+    celery_app.conf.beat_schedule[f"task_{task_id}"] = {
+        "task": "tasks.tasks.execute_scheduled_task",
+        "schedule": schedule,
+        "args": (),
+    }
+    print(f"Scheduled Task {task_id} at {task_datetime} with frequency {frequency}")
 
 
 if __name__ == '__main__':
