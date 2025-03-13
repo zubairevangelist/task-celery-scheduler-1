@@ -64,7 +64,7 @@ celery_app.conf.update(
             },
             "every_minute_task": {
                 "task": "tasks.tasks.every_minute_task",
-                "schedule": crontab(minute="*"), # Run on every minute
+                "schedule": crontab(hour="*"), # Run on every minute
             },
         },
     }

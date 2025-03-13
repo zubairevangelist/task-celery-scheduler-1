@@ -2,6 +2,8 @@ import os
 import re
 from uuid import UUID
 import uuid
+
+from celery import current_app
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 import httpx
 from pydantic import BaseModel, EmailStr, IPvAnyAddress, constr, Field, field_validator
@@ -277,9 +279,7 @@ def schedule_task(task_id, user_id, task_date, task_time, frequency):
     day, month, weekday = task_datetime.day, task_datetime.month, task_datetime.weekday()
     print("minute", minute, "hour", hour,  "day", day, "month", month, "weekday", weekday)
     # Set scheduling rules
-    if frequency == "now":
-        schedule = crontab(minute="*")
-    elif frequency == "daily":
+    if frequency == "daily":
         schedule = crontab(hour=hour, minute=minute)
     elif frequency == "weekly":
         schedule = crontab(day_of_week=weekday, hour=hour, minute=minute)
@@ -292,10 +292,9 @@ def schedule_task(task_id, user_id, task_date, task_time, frequency):
 
     from tasks.tasks import celery_app
     # Add task to Celery Beat schedule
-    celery_app.conf.beat_schedule[f"task_{task_id}"] = {
+    current_app.conf.beat_schedule[f"task_{task_id}"] = {
         "task": "tasks.tasks.execute_scheduled_task",
         "schedule": schedule,
-        "args": (),
     }
     print(f"Scheduled Task {task_id} at {task_datetime} with frequency {frequency}")
 
