@@ -1,12 +1,12 @@
 # version: "3.8"
 services:
-  redis:
-    image: "redis"
-    env_file: ./.env
-    ports:
-      - "6379:6379"
-    networks:
-      - tool_network
+#  redis:
+#    image: "redis"
+#    env_file: ./.env
+#    ports:
+#      - "6379:6379"
+#    networks:
+#      - tool_network
 
   postgres:
     image: "postgres"
@@ -18,6 +18,9 @@ services:
 
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
     networks:
       - tool_network
 
@@ -25,102 +28,44 @@ services:
   web:
     build: .
     command: uvicorn main:app --host 0.0.0.0 --port 8000
+    # command: tmux new-session -d -s scheduler 'uvicorn main:app --host 0.0.0.0 --port 8000' && tmux split-window -v 'tmux capture-pane -p -S -' && tmux attach-session -t scheduler
+
     env_file: ./.env
     ports:
       - "8000:8000"
     depends_on:
-      - redis
+      - postgres
     networks:
       - tool_network
-
-  worker:
-    build: .
-    command: celery -A tasks.tasks worker --loglevel=info
-    env_file: ./.env
-    depends_on:
-      - redis
-      - web
-    volumes:
-      - .:/app
-    networks:
-      - tool_network
-
-  celery-beat:
-    build: .
-    command: celery -A tasks.tasks beat --loglevel=info
-    env_file: ./.env
-    depends_on:
-      - redis
-      - web
-      - worker
-    volumes:
-      - .:/app
-    networks:
-      - tool_network
+   
+#  worker:
+#    build: .
+#    command: celery -A tasks.tasks worker --loglevel=info
+#    env_file: ./.env
+#    depends_on:
+#      - redis
+#      - web
+#    volumes:
+#      - .:/app
+#    networks:
+#      - tool_network
+#
+#  celery-beat:
+#    build: .
+#    command: celery -A tasks.tasks beat --loglevel=info
+#    env_file: ./.env
+#    depends_on:
+#      - redis
+#      - web
+#      - worker
+#    volumes:
+#      - .:/app
+#    networks:
+#      - tool_network
 
 networks:
   tool_network:
     driver: bridge
 
-
-# version: "3.8"
-# services:
-#   redis:
-#     image: "redis"
-#     ports:
-#       - "6379:6379"
-#     networks:
-#       - tool_network
-
-#   postgres:
-#     image: "postgres:17"
-#     environment:
-#       POSTGRES_USER: myuser
-#       POSTGRES_PASSWORD: mypassword
-#       POSTGRES_DB: mydatabase
-#     ports:
-#       - "5432:5432"
-#     networks:
-#       - tool_network
-
-#   web:
-#     build: .
-#     command: uvicorn main:app --host 0.0.0.0 --port 8000
-#     ports:
-#       - "8000:8000"
-#     depends_on:
-#       - redis
-#       - postgres
-#     networks:
-#       - tool_network
-
-#   worker:
-#     build: .
-#     command: celery -A tasks worker --loglevel=info
-#     depends_on:
-#       - redis
-#       - postgres
-#     environment:
-#       - CELERY_BROKER_URL=redis://redis:6379/0
-#       - CELERY_RESULT_BACKEND=db+postgresql://myuser:mypassword@postgres:5432/mydatabase
-#     volumes:
-#       - .:/app
-#     networks:
-#       - tool_network
-
-#   celery-beat:
-#     build: .
-#     command: celery -A tasks beat --loglevel=info
-#     depends_on:
-#       - redis
-#       - worker
-#       - postgres
-#     environment:
-#       - CELERY_BROKER_URL=redis://redis:6379/0
-#       - CELERY_RESULT_BACKEND=db+postgresql://myuser:mypassword@postgres:5432/mydatabase
-#     networks:
-#       - tool_network
-
-# networks:
-#   tool_network:
-#     driver: bridge
+volumes:
+  postgres_data:

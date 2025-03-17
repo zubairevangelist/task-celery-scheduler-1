@@ -1,27 +1,21 @@
+import datetime
 import os
 import re
-from uuid import UUID
 import uuid
-
-from celery import current_app
-from fastapi import BackgroundTasks, FastAPI, HTTPException
-import httpx
-from pydantic import BaseModel, EmailStr, IPvAnyAddress, constr, Field, field_validator
-import datetime
-import pytz
-import requests
-import uvicorn
-from tasks.tasks import daily_task, every_minute_task, on_time_task, weekly_task, monthly_task, yearly_task
-
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from sqlmodel import SQLModel, Field, create_engine, Session, select
 from typing import Annotated, Optional
-import datetime
-from celery.schedules import crontab
 
+import pytz
+import uvicorn
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi import HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, IPvAnyAddress, field_validator
+from sqlmodel import Field, create_engine, Session, select
 
 # Load environment variables from .env file
 load_dotenv()
@@ -74,6 +68,44 @@ async def lifespan(app: FastAPI):
 # FastAPI App with Lifespan
 app = FastAPI(lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Replace with specific origins if needed
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# APScheduler job store configuration (PostgreSQL)
+jobstores = {
+    "default": SQLAlchemyJobStore(url=DATABASE_URL)
+}
+
+scheduler = BackgroundScheduler(jobstores=jobstores, timezone="UTC")
+scheduler.start()
+
+
+def scheduled_task(task_id: str):
+    print(f"Executing task {task_id} at {datetime.datetime.now(pytz.UTC)} UTC")
+
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the scheduler api"}
+
+
+
+@app.get("/tasks/")
+def list_scheduled_tasks():
+    jobs = scheduler.get_jobs()
+    return [{"id": job.id, "next_run_time": job.next_run_time} for job in jobs]
+
+
+@app.delete("/remove-task/{task_id}")
+def remove_task(task_id: str):
+    scheduler.remove_job(task_id)
+    return {"message": f"Task {task_id} removed"}
+
+
 
 
 class ScheduleTaskRequest(BaseModel):
@@ -86,7 +118,7 @@ class ScheduleTaskRequest(BaseModel):
     task_priority: str = Field(..., regex="^(low|medium|high)$")
     task_title: str
     user_id: str
-    task_id: str   
+    task_id: uuid.UUID
 
     @field_validator("task_domain")
     @classmethod
@@ -98,7 +130,24 @@ class ScheduleTaskRequest(BaseModel):
         if not domain_pattern.fullmatch(value):
             raise ValueError("Invalid domain or subdomain. Example: example.com or sub.example.com")
 
-        return value  
+        return value
+
+    @field_validator("task_frequency")
+    @classmethod
+    def validate_task_frequency(cls, value: str):
+        allowed_frequencies = {"daily", "weekly", "monthly", "yearly"}
+        if value.lower() not in allowed_frequencies:
+            raise ValueError(f"Invalid task_frequency. Allowed values: {allowed_frequencies}")
+        return value.lower()  # Normalize input to lowercase
+
+    @field_validator("task_priority")
+    @classmethod
+    def validate_task_priority(cls, value: str):
+        allowed_priorities = {"low", "medium", "high"}
+        if value.lower() not in allowed_priorities:
+            raise ValueError(f"Invalid task_priority. Allowed values: {allowed_priorities}")
+        return value.lower()  # Normalize input to lowercase
+
 
 #  Define the SQLModel
 class ScheduleTasks(SQLModel, table=True):
@@ -113,17 +162,13 @@ class ScheduleTasks(SQLModel, table=True):
     task_date: Optional[datetime.date] = Field(default=None)
     task_time: Optional[datetime.time] = Field(default=None)
     user_id: str = Field(nullable=True)
-
+    task_id: uuid.UUID = Field(nullable=True)
 
 
 def get_session():
     with Session(engine) as session:
         yield session
 
-
-@app.get("/")
-async def root():
-    return {"message": "Welcome to the scheduler api"}
 
 
 @app.post("/tasks/", response_model=ScheduleTasks)
@@ -133,8 +178,8 @@ def create_task(request: ScheduleTaskRequest, session: Session = Depends(get_ses
         # Convert user-provided date & time to UTC
         task_datetime = datetime.datetime.combine(request.task_date, request.task_time)
         task_datetime = task_datetime.replace(tzinfo=datetime.timezone.utc)
-        
-        
+
+
         # Validate if the scheduled time is in the future
         if task_datetime <= datetime.datetime.now(datetime.timezone.utc):
             raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
@@ -151,6 +196,7 @@ def create_task(request: ScheduleTaskRequest, session: Session = Depends(get_ses
             task_date=request.task_date,
             task_time=request.task_time,
             user_id=request.user_id,
+            task_id=request.task_id
         )
 
         # Save to DB
@@ -158,25 +204,48 @@ def create_task(request: ScheduleTaskRequest, session: Session = Depends(get_ses
         session.commit()
         session.refresh(task)
 
-        if request.task_date != "" and request.task_time != "":
-            # **Schedule Celery Task**
-            print(f"Scheduled Task On given time %s", task_datetime)    
-            task_result = on_time_task.apply_async(args=[101, "user123"], eta=task_datetime)
+        # user_datetime = datetime.datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+        # user_datetime = user_datetime.replace(tzinfo=pytz.UTC)  # Ensure UTC
 
-            print(f"Scheduled Task ID: {task_result.id}")
-            # return {"message": "Task Scheduled", "task_id": task_result.id}
-        
-        # Trigger Celery Task Based on Frequency
-        task_mapping = {
-            "daily": daily_task,
-            "weekly": weekly_task,
-            "monthly": monthly_task,
-            "yearly": yearly_task,
-            "every-minute": every_minute_task
-        }
+        frequency = request.task_frequency
+        user_datetime = task_datetime
 
-        if task.task_frequency in task_mapping:
-            task_mapping[task.task_frequency].delay()
+        if frequency == "daily":
+            trigger = CronTrigger(hour=user_datetime.hour, minute=user_datetime.minute)
+        elif frequency == "weekly":
+            trigger = CronTrigger(day_of_week=user_datetime.weekday(), hour=user_datetime.hour,
+                                  minute=user_datetime.minute)
+        elif frequency == "monthly":
+            trigger = CronTrigger(day=user_datetime.day, hour=user_datetime.hour, minute=user_datetime.minute)
+        elif frequency == "yearly":
+            trigger = CronTrigger(month=user_datetime.month, day=user_datetime.day, hour=user_datetime.hour,
+                                  minute=user_datetime.minute)
+        else:
+            return {"error": "Invalid frequency. Choose daily, weekly, monthly, or yearly."}
+
+        scheduler.add_job(scheduled_task, trigger, args=[task.task_id], id=str(task.task_id), replace_existing=True)
+
+        # return {"message": f"Task {request.task_id} scheduled {frequency} at {user_datetime}"}
+
+        # if request.task_date != "" and request.task_time != "":
+        #     # **Schedule Celery Task**
+        #     print(f"Scheduled Task On given time %s", task_datetime)
+        #     task_result = on_time_task.apply_async(args=[101, "user123"], eta=task_datetime)
+        #
+        #     print(f"Scheduled Task ID: {task_result.id}")
+        #     # return {"message": "Task Scheduled", "task_id": task_result.id}
+        #
+        # # Trigger Celery Task Based on Frequency
+        # task_mapping = {
+        #     "daily": daily_task,
+        #     "weekly": weekly_task,
+        #     "monthly": monthly_task,
+        #     "yearly": yearly_task,
+        #     "every-minute": every_minute_task
+        # }
+        #
+        # if task.task_frequency in task_mapping:
+        #     task_mapping[task.task_frequency].delay()
 
         # # Call External API (With Error Handling)
         # url = "https://ingress.ip.attackinsights.dev/ip-scan-all"
@@ -206,98 +275,43 @@ def create_task(request: ScheduleTaskRequest, session: Session = Depends(get_ses
 
     # return task
 
-@app.get("/tasks/", response_model=list[ScheduleTasks])
-def get_tasks(session: Session = Depends(get_session)):
-    tasks = session.exec(select(ScheduleTasks)).all()
-    return tasks
+# @app.get("/tasks-in-db/", response_model=list[ScheduleTasks])
+# def get_tasks(session: Session = Depends(get_session)):
+#     tasks = session.exec(select(ScheduleTasks)).all()
+#     return tasks
 
 
-@app.get("/tasks/{task_id}", response_model=ScheduleTasks)
-def get_task(task_id: int, session: Session = Depends(get_session)):
-    task = session.get(ScheduleTasks, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+# @app.get("/tasks/{task_id}", response_model=ScheduleTasks)
+# def get_task(task_id: int, session: Session = Depends(get_session)):
+#     task = session.get(ScheduleTasks, task_id)
+#     if not task:
+#         raise HTTPException(status_code=404, detail="Task not found")
+#     return task
 
 
-@app.put("/tasks/{task_id}", response_model=ScheduleTasks)
-def update_task(task_id: int, updated_task: ScheduleTasks, session: Session = Depends(get_session)):
-    task = session.get(ScheduleTasks, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+# @app.put("/tasks/{task_id}", response_model=ScheduleTasks)
+# def update_task(task_id: int, updated_task: ScheduleTasks, session: Session = Depends(get_session)):
+#     task = session.get(ScheduleTasks, task_id)
+#     if not task:
+#         raise HTTPException(status_code=404, detail="Task not found")
     
-    for key, value in updated_task.dict(exclude_unset=True).items():
-        setattr(task, key, value)
+#     for key, value in updated_task.dict(exclude_unset=True).items():
+#         setattr(task, key, value)
 
-    session.commit()
-    session.refresh(task)
-    return task
+#     session.commit()
+#     session.refresh(task)
+#     return task
 
 
-@app.delete("/tasks/{task_id}")
-def delete_task(task_id: int, session: Session = Depends(get_session)):
-    task = session.get(ScheduleTasks, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+# @app.delete("/tasks/{task_id}")
+# def delete_task(task_id: int, session: Session = Depends(get_session)):
+#     task = session.get(ScheduleTasks, task_id)
+#     if not task:
+#         raise HTTPException(status_code=404, detail="Task not found")
     
-    session.delete(task)
-    session.commit()
-    return {"message": "Task deleted successfully"}
-
-
-@app.post("/schedule-task/")
-async def schedule_task_api(request: ScheduleTaskRequest, background_tasks: BackgroundTasks):
-    """
-    API to schedule a task with a specific time and frequency.
-    """
-    print("in schedule task api")
-    background_tasks.add_task(
-        schedule_task, request.task_id, request.user_id, request.task_date, request.task_time, request.task_frequency
-    )
-    return {"message": "Task scheduled successfully", "task_id": request.task_id}
-
-
-
-
-
-def schedule_task(task_id, user_id, task_date, task_time, frequency):
-    """
-    Dynamically schedules a Celery task based on user-provided date, time, and frequency.
-    """
-    print("in schedule task function")
-    # Convert user-provided date & time to UTC
-    task_datetime = datetime.datetime.combine(task_date, task_time)
-    task_datetime = task_datetime.replace(tzinfo=datetime.timezone.utc)
-    
-    
-    # Validate if the scheduled time is in the future
-    if task_datetime <= datetime.datetime.now(datetime.timezone.utc):
-        raise HTTPException(status_code=400, detail="Scheduled time must be in the future")
-
-
-    hour, minute = task_datetime.hour, task_datetime.minute
-    day, month, weekday = task_datetime.day, task_datetime.month, task_datetime.weekday()
-    print("minute", minute, "hour", hour,  "day", day, "month", month, "weekday", weekday)
-    # Set scheduling rules
-    if frequency == "daily":
-        schedule = crontab(hour=hour, minute=minute)
-    elif frequency == "weekly":
-        schedule = crontab(day_of_week=weekday, hour=hour, minute=minute)
-    elif frequency == "monthly":
-        schedule = crontab(day_of_month=day, hour=hour, minute=minute)
-    elif frequency == "yearly":
-        schedule = crontab(month_of_year=month, day_of_month=day, hour=hour, minute=minute)
-    else:
-        raise HTTPException(status_code=400, detail="Invalid frequency. Choose from daily, weekly, monthly, yearly.")
-
-    from tasks.tasks import celery_app
-    # Add task to Celery Beat schedule
-    current_app.conf.beat_schedule[f"task_{task_id}"] = {
-        "task": "tasks.tasks.execute_scheduled_task",
-        "schedule": schedule,
-    }
-    print(f"Scheduled Task {task_id} at {task_datetime} with frequency {frequency}")
-
+#     session.delete(task)
+#     session.commit()
+#     return {"message": "Task deleted successfully"}
 
 if __name__ == '__main__':
     uvicorn.run(app, host='0.0.0.0', port=8000)
