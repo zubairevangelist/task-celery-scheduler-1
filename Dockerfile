@@ -18,11 +18,11 @@ COPY . .
 
 RUN apt-get update && apt-get install -y tmux && apt-get clean
 # Install required packages
-RUN apt-get update && apt-get install -y screen && rm -rf /var/lib/apt/lists/*
+#RUN apt-get update && apt-get install -y screen && rm -rf /var/lib/apt/lists/*
 
 
 # Set the default command
-CMD ["python", "main.py"]
+#CMD ["python", "main.py"]
 # CMD ["tmux", "new-session", "-d", "-s", "scheduler", "uvicorn main:app --host 0.0.0.0 --port 8000 && tmux split-window -v 'tmux capture-pane -p -S -' && tmux attach-session -t scheduler"]
 # CMD ["tmux", "new-session", "-d", "-s", "scheduler", "uvicorn main:app --host 0.0.0.0 --port 8000 && tail -f /dev/null"]
 # Run FastAPI app with APScheduler in a screen session
