@@ -5,6 +5,7 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Annotated, Optional
 
+import httpx
 import pytz
 import uvicorn
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -225,42 +226,8 @@ def create_task(request: ScheduleTaskRequest, session: Session = Depends(get_ses
 
         scheduler.add_job(scheduled_task, trigger, args=[task.task_id], id=str(task.task_id), replace_existing=True)
 
-        # return {"message": f"Task {request.task_id} scheduled {frequency} at {user_datetime}"}
-
-        # if request.task_date != "" and request.task_time != "":
-        #     # **Schedule Celery Task**
-        #     print(f"Scheduled Task On given time %s", task_datetime)
-        #     task_result = on_time_task.apply_async(args=[101, "user123"], eta=task_datetime)
-        #
-        #     print(f"Scheduled Task ID: {task_result.id}")
-        #     # return {"message": "Task Scheduled", "task_id": task_result.id}
-        #
-        # # Trigger Celery Task Based on Frequency
-        # task_mapping = {
-        #     "daily": daily_task,
-        #     "weekly": weekly_task,
-        #     "monthly": monthly_task,
-        #     "yearly": yearly_task,
-        #     "every-minute": every_minute_task
-        # }
-        #
-        # if task.task_frequency in task_mapping:
-        #     task_mapping[task.task_frequency].delay()
-
-        # # Call External API (With Error Handling)
-        # url = "https://ingress.ip.attackinsights.dev/ip-scan-all"
-        # data = {
-        #     "task_ip": task.task_ip,
-        #     "user_id": task.user_id
-        # }
-
-        # try:
-        #     with httpx.Client(timeout=10) as client:
-        #         response = client.post(url, json=data)
-        #         response.raise_for_status()  # Raises an exception for 4xx/5xx errors
-        #         api_response = response.json()
-        # except httpx.RequestError as e:
-        #     raise HTTPException(status_code=502, detail=f"External API request failed: {str(e)}")
+        # Call External API (With Error Handling)
+        call_to_ingress(task)
 
         return task
 
@@ -273,7 +240,23 @@ def create_task(request: ScheduleTaskRequest, session: Session = Depends(get_ses
        # Print response JSON
 
 
-    # return task
+def call_to_ingress(task: ScheduleTasks):
+    # Call External API (With Error Handling)
+    url = "https://ingress.ip.attackinsights.dev/ip-scan-all"
+    data = {
+        "ip": task.task_ip,
+        "user_id": task.user_id
+    }
+
+    try:
+        with httpx.Client(timeout=10) as client:
+            response = client.post(url, json=data)
+            response.raise_for_status()  # Raises an exception for 4xx/5xx errors
+            api_response = response.json()
+            print(api_response)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"External API request failed: {str(e)}")
+
 
 # @app.get("/tasks-in-db/", response_model=list[ScheduleTasks])
 # def get_tasks(session: Session = Depends(get_session)):

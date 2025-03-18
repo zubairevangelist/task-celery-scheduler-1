@@ -9,7 +9,7 @@ services:
 #      - tool_network
 
   postgres:
-    image: "postgres"
+    image: "postgres:17"
     env_file: ./.env
     # environment:
     #   POSTGRES_USER: myuser
@@ -30,7 +30,7 @@ services:
     tty: true      # Enables TTY
     stdin_open: true  # Keeps stdin open
     command: /bin/sh -c "tmux new-session -d -s app 'uvicorn main:app --host 0.0.0.0 --port 8000' && tmux attach"
-#    command: python main.py
+    # command: python main.py
     # command: uvicorn main:app --host 0.0.0.0 --port 8000
     # command: tmux new-session -d -s scheduler 'uvicorn main:app --host 0.0.0.0 --port 8000' && tmux split-window -v 'tmux capture-pane -p -S -' && tmux attach-session -t scheduler
 
