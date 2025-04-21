@@ -227,7 +227,7 @@ def create_task(request: ScheduleTaskRequest, session: Session = Depends(get_ses
         scheduler.add_job(scheduled_task, trigger, args=[task.task_id], id=str(task.task_id), replace_existing=True)
 
         # Call External API (With Error Handling)
-        call_to_ingress(task)
+        # call_to_ingress(task)
 
         return task
 
