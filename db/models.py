@@ -31,4 +31,4 @@ class ScheduleTasks(SQLModel, table=True):
     task_date = Column(Date, nullable=False)
     task_time = Column(Time, nullable=False)
     user_id = Column(String, nullable=False)
-
+    task_id = Column(String, nullable=False)
